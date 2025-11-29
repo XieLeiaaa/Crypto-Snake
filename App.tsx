@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { GameStatus, Point, Direction, ScoreRecord, CoinType, EthereumWindow } from './types';
-import { GRID_SIZE, INITIAL_SPEED, SPEED_INCREMENT, MIN_SPEED, COINS, BTC_ICON, CONTRACT_ADDRESS, CONTRACT_ABI, BASE_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CONFIG } from './constants';
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, RotateCcw, Trophy, Wallet, Home, ListOrdered, Pause, Play, Link as LinkIcon, AlertCircle } from 'lucide-react';
-import { ethers } from 'ethers';
+import { GameStatus, Point, Direction, ScoreRecord, CoinType } from './types';
+import { GRID_SIZE, INITIAL_SPEED, SPEED_INCREMENT, MIN_SPEED, COINS, BTC_ICON } from './constants';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Save, RotateCcw, Trophy, Home, ListOrdered, Pause, Play } from 'lucide-react';
 
 // --- Audio System ---
 const audioContextRef = { current: null as AudioContext | null };
@@ -110,10 +109,6 @@ export default function App() {
   const [currentCoin, setCurrentCoin] = useState<CoinType>(COINS[0]);
   const [leaderboard, setLeaderboard] = useState<ScoreRecord[]>([]);
   const [isMuted, setIsMuted] = useState(false);
-  
-  // Wallet State
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string>('');
   
   const directionRef = useRef<Direction>('RIGHT');
@@ -121,27 +116,10 @@ export default function App() {
   const speedRef = useRef(INITIAL_SPEED);
   const gameIntervalRef = useRef<number | null>(null);
 
-  // Initialize Leaderboard & Wallet Listener
+  // Initialize Leaderboard
   useEffect(() => {
     const saved = localStorage.getItem('crypto_snake_leaderboard');
     if (saved) setLeaderboard(JSON.parse(saved));
-    
-    // Check if already connected
-    const checkConnection = async () => {
-        const win = window as EthereumWindow;
-        if (win.ethereum) {
-            try {
-                const provider = new ethers.BrowserProvider(win.ethereum);
-                const accounts = await provider.listAccounts();
-                if (accounts.length > 0) {
-                    setWalletAddress(accounts[0].address);
-                }
-            } catch (e) {
-                console.log("Not connected");
-            }
-        }
-    };
-    checkConnection();
   }, []);
 
   // Controls Listener
@@ -167,125 +145,28 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [status]);
 
-  // --- Wallet & Blockchain Functions ---
-
-  const connectWallet = async () => {
-    playSound('click', isMuted);
-    setIsConnecting(true);
-    setStatusMessage("Connecting...");
-    
-    const win = window as EthereumWindow;
-    if (!win.ethereum) {
-        alert("Please install Coinbase Wallet, MetaMask, or another Web3 wallet!");
-        setIsConnecting(false);
-        return;
-    }
-
-    try {
-        const provider = new ethers.BrowserProvider(win.ethereum);
-        const accounts = await provider.send("eth_requestAccounts", []);
-        setWalletAddress(accounts[0]);
-        setStatusMessage("");
-    } catch (err) {
-        console.error(err);
-        setStatusMessage("Connection Failed");
-    } finally {
-        setIsConnecting(false);
-    }
-  };
-
-  const switchNetwork = async () => {
-    const win = window as EthereumWindow;
-    if (!win.ethereum) return false;
-    
-    try {
-      await win.ethereum.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: BASE_SEPOLIA_CHAIN_ID }],
-      });
-      return true;
-    } catch (switchError: any) {
-      if (switchError.code === 4902) {
-        try {
-          await win.ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [BASE_SEPOLIA_CONFIG],
-          });
-          return true;
-        } catch (addError) {
-          console.error(addError);
-          return false;
-        }
-      }
-      return false;
-    }
-  };
-
-  const saveScoreToChain = async () => {
-    playSound('click', isMuted);
-    
-    if (!walletAddress) {
-        await connectWallet();
-        if (!walletAddress) return; // Still not connected
-    }
-
-    setStatus(GameStatus.SAVING);
-    setStatusMessage("Checking Network...");
-
-    // 1. Ensure Network
-    const success = await switchNetwork();
-    if (!success) {
-        setStatusMessage("Network Error");
-        setTimeout(() => setStatus(GameStatus.GAME_OVER), 2000);
-        return;
-    }
-
-    setStatusMessage("Sign Transaction...");
-
-    try {
-        // 2. Setup Contract
-        const win = window as EthereumWindow;
-        const provider = new ethers.BrowserProvider(win.ethereum);
-        const signer = await provider.getSigner();
-        
-        if (CONTRACT_ADDRESS === "0x0000000000000000000000000000000000000000") {
-             setStatusMessage("Contract Not Set");
-             console.error("Please update CONTRACT_ADDRESS in constants.tsx");
-             setTimeout(() => setStatus(GameStatus.GAME_OVER), 3000);
-             return;
-        }
-
-        const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-
-        // 3. Send Transaction
-        const tx = await contract.submitScore(score);
-        setStatusMessage("Minting...");
-        
-        await tx.wait(); // Wait for confirmation
-        
-        // 4. Update Local State on Success
-        const newRecord: ScoreRecord = {
-            id: Math.random().toString(36).substr(2, 9),
-            score,
-            timestamp: Date.now(),
-            txHash: tx.hash
-        };
-
-        const newLeaderboard = [...leaderboard, newRecord].sort((a, b) => b.score - a.score).slice(0, 10);
-        setLeaderboard(newLeaderboard);
-        localStorage.setItem('crypto_snake_leaderboard', JSON.stringify(newLeaderboard));
-        
-        playSound('eat', isMuted);
-        setStatus(GameStatus.LEADERBOARD);
-
-    } catch (err: any) {
-        console.error(err);
-        setStatusMessage("TX Failed");
-        setTimeout(() => setStatus(GameStatus.GAME_OVER), 2000);
-    }
-  };
-
   // --- Game Logic ---
+
+  const saveScore = () => {
+    playSound('click', isMuted);
+    setStatus(GameStatus.SAVING);
+    setStatusMessage("Saving Score...");
+
+    setTimeout(() => {
+      const newRecord: ScoreRecord = {
+        id: Math.random().toString(36).substr(2, 9),
+        score,
+        timestamp: Date.now(),
+      };
+
+      const newLeaderboard = [...leaderboard, newRecord].sort((a, b) => b.score - a.score).slice(0, 10);
+      setLeaderboard(newLeaderboard);
+      localStorage.setItem('crypto_snake_leaderboard', JSON.stringify(newLeaderboard));
+      
+      playSound('eat', isMuted);
+      setStatus(GameStatus.LEADERBOARD);
+    }, 1000);
+  };
 
   const togglePause = () => {
     playSound('click', isMuted);
@@ -471,24 +352,7 @@ export default function App() {
       </div>
       <div className="w-16 h-16 animate-bounce">{BTC_ICON}</div>
       
-      {!walletAddress ? (
-        <button 
-          onClick={connectWallet}
-          disabled={isConnecting}
-          className="mt-4 flex items-center gap-2 px-4 py-2 bg-blue-700 text-white font-bold border-2 border-stone-800 text-sm hover:bg-blue-600 disabled:opacity-50"
-        >
-          {isConnecting ? '...' : <><Wallet size={16} /> CONNECT WALLET</>}
-        </button>
-      ) : (
-        <div className="mt-2 flex flex-col items-center">
-            <span className="text-[10px] uppercase text-[#0F380F]/70 mb-1">CONNECTED</span>
-            <div className="px-2 py-1 bg-[#0F380F]/10 border border-[#0F380F] text-xs font-mono">
-                {walletAddress.substring(0,6)}...{walletAddress.substring(38)}
-            </div>
-        </div>
-      )}
-
-      <div className="flex gap-2 mt-2">
+      <div className="flex gap-2 mt-4">
         <button 
           onClick={resetGame}
           className="px-6 py-2 bg-[#0F380F] text-[#A4B494] font-bold border-2 border-[#0F380F] hover:bg-[#205020] active:translate-y-1 text-xl"
@@ -503,21 +367,20 @@ export default function App() {
     <div className="flex flex-col items-center justify-center h-full space-y-4">
       <h2 className="text-4xl font-bold mb-2">GAME OVER</h2>
       <div className="text-2xl">SCORE: {score}</div>
-      <p className="text-sm text-center max-w-[200px] mb-2 text-[#0F380F]/80">Save to Base Sepolia?</p>
       
-      <div className="flex flex-col gap-3 w-full max-w-[200px]">
+      <div className="flex flex-col gap-3 w-full max-w-[200px] mt-4">
         <button 
-          onClick={saveScoreToChain}
+          onClick={saveScore}
           className="flex items-center justify-center gap-2 px-4 py-3 bg-[#0F380F] text-[#A4B494] font-bold active:translate-y-1 hover:opacity-90 relative overflow-hidden"
         >
           <div className="absolute inset-0 bg-white/10 animate-pulse pointer-events-none" />
-          <Save size={18} /> SAVE ON CHAIN
+          <Save size={18} /> SAVE SCORE
         </button>
         <button 
           onClick={goHome}
           className="flex items-center justify-center gap-2 px-4 py-3 border-2 border-[#0F380F] font-bold active:translate-y-1 hover:bg-[#0F380F]/10"
         >
-          <RotateCcw size={18} /> NO, HOME
+          <RotateCcw size={18} /> HOME
         </button>
       </div>
     </div>
@@ -525,22 +388,20 @@ export default function App() {
 
   const SavingScreen = () => (
     <div className="flex flex-col items-center justify-center h-full space-y-6">
-      <Wallet size={48} className="animate-pulse" />
+      <Save size={48} className="animate-pulse" />
       <div className="text-center">
-        <h3 className="text-2xl font-bold">BLOCKCHAIN</h3>
-        <p className="text-sm mt-2">{statusMessage || "Processing..."}</p>
+        <h3 className="text-2xl font-bold">SAVING...</h3>
+        <p className="text-sm mt-2">{statusMessage}</p>
       </div>
-      {statusMessage.includes("Minting") && (
-          <div className="w-3/4 h-3 bg-[#0F380F]/30 rounded overflow-hidden">
-            <div className="h-full bg-[#0F380F] animate-progress"></div>
-          </div>
-      )}
+      <div className="w-3/4 h-3 bg-[#0F380F]/30 rounded overflow-hidden">
+        <div className="h-full bg-[#0F380F] animate-progress"></div>
+      </div>
       <style>{`
         @keyframes progress {
           0% { width: 0% }
           100% { width: 100% }
         }
-        .animate-progress { animation: progress 2s ease-in-out forwards; }
+        .animate-progress { animation: progress 1s ease-in-out forwards; }
       `}</style>
     </div>
   );
@@ -548,7 +409,7 @@ export default function App() {
   const LeaderboardScreen = () => (
     <div className="flex flex-col h-full w-full">
       <div className="flex items-center justify-between border-b-2 border-[#0F380F] pb-2 mb-2">
-        <h2 className="text-xl font-bold flex items-center gap-2"><Trophy size={20}/> TOP HOLDLERS</h2>
+        <h2 className="text-xl font-bold flex items-center gap-2"><Trophy size={20}/> HIGH SCORES</h2>
       </div>
       <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-hide">
         {leaderboard.length === 0 ? (
@@ -559,15 +420,10 @@ export default function App() {
               <span className="font-bold w-6">{idx + 1}.</span>
               <div className="flex-1 flex flex-col overflow-hidden mr-2">
                    <span className="font-mono text-xs truncate opacity-70">
-                    {rec.txHash ? `${rec.txHash.substr(0, 8)}...` : 'Local Save'}
+                    {new Date(rec.timestamp).toLocaleDateString()}
                   </span>
               </div>
               <span className="font-bold">{rec.score}</span>
-              {rec.txHash && !rec.txHash.startsWith('0xLocal') && (
-                  <a href={`https://sepolia.basescan.org/tx/${rec.txHash}`} target="_blank" rel="noreferrer" className="ml-1 text-[#0F380F] hover:text-blue-700">
-                      <LinkIcon size={12} />
-                  </a>
-              )}
             </div>
           ))
         )}
@@ -586,19 +442,12 @@ export default function App() {
         
         <div className="w-full flex justify-between items-center mb-3 px-2">
            <div className="h-2 md:h-3 w-full border-b-4 border-stone-300"></div>
-           <span className="text-stone-400 font-bold italic ml-2 text-xs md:text-sm whitespace-nowrap">RETRO-CHAIN v1.0</span>
+           <span className="text-stone-400 font-bold italic ml-2 text-xs md:text-sm whitespace-nowrap">GAME-CONSOLE v2.0</span>
         </div>
 
         <div className="bg-stone-500 p-3 md:p-6 rounded-t-lg rounded-b-2xl w-full shadow-lg relative">
           
-          <div className="flex justify-between items-end mb-1 px-1">
-            <div className="flex items-center gap-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
-              <span className="text-[10px] text-stone-300">
-                {walletAddress ? 'ONLINE' : 'OFFLINE'}
-              </span>
-            </div>
-            
+          <div className="flex justify-end items-end mb-1 px-1">
             <button 
               onClick={() => setIsMuted(!isMuted)}
               className="flex items-center gap-1 cursor-pointer group"
@@ -627,7 +476,7 @@ export default function App() {
             {status === GameStatus.LEADERBOARD && <LeaderboardScreen />}
           </Screen>
 
-          <div className="text-center mt-2 text-stone-300 text-xs italic font-serif">Block-Boy Color</div>
+          <div className="text-center mt-2 text-stone-300 text-xs italic font-serif">Portable Gaming System</div>
         </div>
 
         <div className="w-full mt-6 pb-4 md:pb-8 flex flex-col items-center relative">

@@ -6,29 +6,6 @@ export const INITIAL_SPEED = 220;
 export const SPEED_INCREMENT = 5; 
 export const MIN_SPEED = 60; 
 
-// --- BLOCKCHAIN CONFIG ---
-
-// REPLACE THIS WITH YOUR DEPLOYED CONTRACT ADDRESS
-export const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000000"; 
-
-export const BASE_SEPOLIA_CHAIN_ID = '0x14a34'; // 84532
-export const BASE_SEPOLIA_CONFIG = {
-  chainId: BASE_SEPOLIA_CHAIN_ID,
-  chainName: 'Base Sepolia Testnet',
-  nativeCurrency: {
-    name: 'ETH',
-    symbol: 'ETH',
-    decimals: 18,
-  },
-  rpcUrls: ['https://sepolia.base.org'],
-  blockExplorerUrls: ['https://sepolia.basescan.org'],
-};
-
-export const CONTRACT_ABI = [
-  "function submitScore(uint256 _score) public",
-  "event ScoreSubmitted(address indexed player, uint256 score, uint256 timestamp)"
-];
-
 // --- ASSETS ---
 
 export const COINS: CoinType[] = [

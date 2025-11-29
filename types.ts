@@ -28,7 +28,3 @@ export interface CoinType {
   color: string;
   svg: React.ReactNode;
 }
-
-export interface EthereumWindow extends Window {
-  ethereum?: any;
-}
